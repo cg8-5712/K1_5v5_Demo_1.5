@@ -1,5 +1,6 @@
 #include "booster_vision/vision_node.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <filesystem>
@@ -503,7 +504,11 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 }
 
 void VisionNode::ColorCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
-    std::cout << "new color for det received" << std::endl;
+    static uint64_t color_cb_count = 0;
+    color_cb_count++;
+    if (color_cb_count <= 20 || color_cb_count % 50 == 0) {
+        std::cout << "[VisionNode][det cb] count=" << color_cb_count << std::endl;
+    }
     auto start = std::chrono::system_clock::now();
     if (!msg) {
         std::cerr << "empty image message." << std::endl;
@@ -530,7 +535,15 @@ void VisionNode::ColorCallback(const sensor_msgs::msg::Image::ConstSharedPtr &ms
 
     // get synced data
     SyncedDataBlock synced_data = data_syncer_->getSyncedDataBlock(ColorDataBlock(img, timestamp));
-    
+    if ((color_cb_count <= 20 || color_cb_count % 50 == 0)) {
+        double pose_dt_ms = (timestamp - synced_data.pose_data.timestamp) * 1000;
+        bool depth_ready = !use_depth_ || !synced_data.depth_data.data.empty();
+        std::cout << "[VisionNode][det sync] ts=" << timestamp
+                  << " pose_dt_ms=" << pose_dt_ms
+                  << " depth_ready=" << depth_ready
+                  << " use_depth=" << use_depth_ << std::endl;
+    }
+
     ProcessData(synced_data, detection_msg);
     auto end = std::chrono::system_clock::now();
     std::cout << "color callback takes: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
@@ -587,11 +600,15 @@ void VisionNode::ProcessSegmentationData(SyncedDataBlock &synced_data, vision_in
 }
 
 void VisionNode::SegmentationCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
+    static uint64_t seg_cb_count = 0;
+    seg_cb_count++;
+    if (seg_cb_count <= 20 || seg_cb_count % 50 == 0) {
+        std::cout << "[VisionNode][seg cb] count=" << seg_cb_count << std::endl;
+    }
     if (!segmentor_) {
         std::cerr << "no segmentor loaded." << std::endl;
         return;
     }
-    std::cout << "new color for seg received" << std::endl;
     if (!msg) {
         std::cerr << "empty image message." << std::endl;
         return;
@@ -613,11 +630,21 @@ void VisionNode::SegmentationCallback(const sensor_msgs::msg::Image::ConstShared
 
     // get synced data
     SyncedDataBlock synced_data = seg_data_syncer_->getSyncedDataBlock(ColorDataBlock(img, timestamp));
+    if (seg_cb_count <= 20 || seg_cb_count % 50 == 0) {
+        double pose_dt_ms = (timestamp - synced_data.pose_data.timestamp) * 1000;
+        std::cout << "[VisionNode][seg sync] ts=" << timestamp
+                  << " pose_dt_ms=" << pose_dt_ms
+                  << " pose_ts=" << synced_data.pose_data.timestamp << std::endl;
+    }
     ProcessSegmentationData(synced_data, field_line_segs_msg);
 }
 
 void VisionNode::DepthCallback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
-    std::cout << "new depth received" << std::endl;
+    static uint64_t depth_cb_count = 0;
+    depth_cb_count++;
+    if (depth_cb_count <= 20 || depth_cb_count % 50 == 0) {
+        std::cout << "[VisionNode][depth cb] count=" << depth_cb_count << std::endl;
+    }
     // cv_bridge::CvImagePtr cv_ptr;
     cv::Mat img;
     try {

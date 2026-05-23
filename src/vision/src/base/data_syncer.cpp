@@ -1,7 +1,10 @@
 #include "booster_vision/base/data_syncer.hpp"
 
 #include <algorithm>
+#include <cfloat>
+#include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <regex>
 
@@ -37,11 +40,25 @@ void DataSyncer::AddDepth(const DepthDataBlock &depth_data) {
     if (!enable_depth_) return;
     std::lock_guard<std::mutex> lock(depth_buffer_mutex_);
     depth_buffer_.push_back(depth_data);
+    static uint64_t depth_add_count = 0;
+    depth_add_count++;
+    if (depth_add_count <= 20 || depth_add_count % 100 == 0) {
+        std::cout << "[DataSyncer][add depth] count=" << depth_add_count
+                  << " ts=" << depth_data.timestamp
+                  << " buffer_size=" << depth_buffer_.size() << std::endl;
+    }
 }
 
 void DataSyncer::AddPose(const PoseDataBlock &pose_data) {
     std::lock_guard<std::mutex> lock(pose_buffer_mutex_);
     pose_buffer_.push_back(pose_data);
+    static uint64_t pose_add_count = 0;
+    pose_add_count++;
+    if (pose_add_count <= 20 || pose_add_count % 100 == 0) {
+        std::cout << "[DataSyncer][add pose] count=" << pose_add_count
+                  << " ts=" << pose_data.timestamp
+                  << " buffer_size=" << pose_buffer_.size() << std::endl;
+    }
 }
 
 SyncedDataBlock DataSyncer::getSyncedDataBlock() {
@@ -107,6 +124,11 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock(const ColorDataBlock &color_data)
         pose_buffer_cp = pose_buffer_;
     }
 
+    bool depth_selected = false;
+    bool pose_selected = false;
+    double depth_best_diff = DBL_MAX;
+    double pose_best_diff = DBL_MAX;
+
     double color_timestamp = color_data.timestamp;
     if (enable_depth_) {
         if (depth_buffer_cp.empty()) {
@@ -126,6 +148,8 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock(const ColorDataBlock &color_data)
                     synced_data.depth_data = *it;
                     synced_data.depth_data.timestamp = it->timestamp;
                     it->data.copyTo(synced_data.depth_data.data);
+                    depth_selected = true;
+                    depth_best_diff = diff;
                 } else {
                     break;
                 }
@@ -148,9 +172,42 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock(const ColorDataBlock &color_data)
             if (diff < smallest_pose_timestamp_diff) {
                 smallest_pose_timestamp_diff = diff;
                 synced_data.pose_data = *it;
+                pose_selected = true;
+                pose_best_diff = diff;
             } else {
                 break;
             }
+        }
+    }
+
+    static uint64_t sync_count = 0;
+    sync_count++;
+    if (sync_count <= 20 || sync_count % 50 == 0) {
+        std::cout << "[DataSyncer][sync] count=" << sync_count
+                  << " color_ts=" << color_timestamp
+                  << " depth_buf=" << depth_buffer_cp.size()
+                  << " pose_buf=" << pose_buffer_cp.size();
+        if (enable_depth_) {
+            std::cout << " depth_selected=" << depth_selected
+                      << " depth_dt_ms=" << (depth_selected ? depth_best_diff * 1000.0 : -1.0);
+        }
+        std::cout << " pose_selected=" << pose_selected
+                  << " pose_dt_ms=" << (pose_selected ? pose_best_diff * 1000.0 : -1.0)
+                  << std::endl;
+    }
+
+    if (pose_selected && synced_data.pose_data.timestamp == 0) {
+        static int pose_zero_ts_log_count = 0;
+        if (pose_zero_ts_log_count < 20) {
+            std::cerr << "[DataSyncer][warn] selected pose timestamp is 0, likely startup warmup state" << std::endl;
+            pose_zero_ts_log_count++;
+        }
+    }
+    if (enable_depth_ && depth_selected && synced_data.depth_data.timestamp == 0) {
+        static int depth_zero_ts_log_count = 0;
+        if (depth_zero_ts_log_count < 20) {
+            std::cerr << "[DataSyncer][warn] selected depth timestamp is 0, likely startup warmup state" << std::endl;
+            depth_zero_ts_log_count++;
         }
     }
 
