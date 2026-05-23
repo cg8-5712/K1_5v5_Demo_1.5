@@ -275,7 +275,8 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
             color_seg_sub_ = it_->subscribe(color_topic, 1, &VisionNode::SegmentationCallback, this, &hints, sub_opt_2);
         } else {
             color_seg_sub_ = it_->subscribe(color_topic, 1, &VisionNode::SegmentationCallback, this, nullptr, sub_opt_2);
-        } 
+        }
+        std::cout << "segmentor subscription created on topic: " << color_topic << std::endl;
         field_line_pub_ = this->create_publisher<vision_interface::msg::LineSegments>("/booster_vision/line_segments", rclcpp::QoS(1));
     }
     ball_pub_ = this->create_publisher<vision_interface::msg::Ball>("/booster_vision/ball", rclcpp::QoS(1));

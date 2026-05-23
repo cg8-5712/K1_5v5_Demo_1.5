@@ -1,5 +1,6 @@
 #include "booster_vision/base/data_syncer.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 #include <regex>
@@ -108,30 +109,51 @@ SyncedDataBlock DataSyncer::getSyncedDataBlock(const ColorDataBlock &color_data)
 
     double color_timestamp = color_data.timestamp;
     if (enable_depth_) {
-        double smallest_depth_timestamp_diff = DBL_MAX;
-        for (DepthBuffer::reverse_iterator it = depth_buffer_cp.rbegin(); it != depth_buffer_cp.rbegin() + kDepthBufferLength; ++it) {
+        if (depth_buffer_cp.empty()) {
+            static int depth_empty_log_count = 0;
+            if (depth_empty_log_count < 20) {
+                std::cerr << "[DataSyncer] depth buffer empty when syncing color ts=" << color_timestamp << std::endl;
+                depth_empty_log_count++;
+            }
+        } else {
+            double smallest_depth_timestamp_diff = DBL_MAX;
+            size_t depth_count = std::min(depth_buffer_cp.size(), static_cast<size_t>(kDepthBufferLength));
+            for (size_t i = 0; i < depth_count; ++i) {
+                auto it = depth_buffer_cp.rbegin() + i;
+                double diff = std::abs(it->timestamp - color_timestamp);
+                if (diff < smallest_depth_timestamp_diff) {
+                    smallest_depth_timestamp_diff = diff;
+                    synced_data.depth_data = *it;
+                    synced_data.depth_data.timestamp = it->timestamp;
+                    it->data.copyTo(synced_data.depth_data.data);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    if (pose_buffer_cp.empty()) {
+        static int pose_empty_log_count = 0;
+        if (pose_empty_log_count < 20) {
+            std::cerr << "[DataSyncer] pose buffer empty when syncing color ts=" << color_timestamp << std::endl;
+            pose_empty_log_count++;
+        }
+    } else {
+        double smallest_pose_timestamp_diff = DBL_MAX;
+        size_t pose_count = std::min(pose_buffer_cp.size(), static_cast<size_t>(kPoseBufferLength));
+        for (size_t i = 0; i < pose_count; ++i) {
+            auto it = pose_buffer_cp.rbegin() + i;
             double diff = std::abs(it->timestamp - color_timestamp);
-            if (diff < smallest_depth_timestamp_diff) {
-                smallest_depth_timestamp_diff = diff;
-                synced_data.depth_data = *it;
-                synced_data.depth_data.timestamp = it->timestamp;
-                it->data.copyTo(synced_data.depth_data.data);
+            if (diff < smallest_pose_timestamp_diff) {
+                smallest_pose_timestamp_diff = diff;
+                synced_data.pose_data = *it;
             } else {
                 break;
             }
         }
     }
 
-    double smallest_pose_timestamp_diff = DBL_MAX;
-    for (PoseBuffer::reverse_iterator it = pose_buffer_cp.rbegin(); it != pose_buffer_cp.rbegin() + kPoseBufferLength; ++it) {
-        double diff = std::abs(it->timestamp - color_timestamp);
-        if (diff < smallest_pose_timestamp_diff) {
-            smallest_pose_timestamp_diff = diff;
-            synced_data.pose_data = *it;
-        } else {
-            break;
-        }
-    }
     return synced_data;
 }
 
