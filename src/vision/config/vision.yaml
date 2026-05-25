@@ -32,6 +32,16 @@ camera:
   pitch_compensation: 0
   yaw_compensation: 0
   z_compensation: 0
+vision_profiler:
+  alert_fps_min: 40.0
+  alert_drop_rate_max: 2.0
+  alert_e2e_p95_ms_max: 20.0
+  alert_jitter_ms_max: 5.0
+  report_every_n_frames: 100
+
+ball_prefilter:
+  conf_min: 0.10
+
 detection_model:
   model_path: ./src/vision/model/k1_realsense_0120.engine
   confidence_threshold: 0.2

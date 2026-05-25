@@ -4,6 +4,30 @@
 BrainData::BrainData()
 {
     std::fill(std::begin(penalty), std::end(penalty), SUBSTITUTE);
+    resetBallPrediction();
+}
+
+void BrainData::resetBallPrediction()
+{
+    filteredBallField = {};
+    pred100Field = {};
+    pred300Field = {};
+    pred100Robot = {};
+    ballConfidence = 0.f;
+    ballModeProb[0] = 0.5f;
+    ballModeProb[1] = 0.5f;
+    ballPredictionValid = false;
+    pred300Valid = false;
+    usingFieldFrame = false;
+    predictedBallPos.clear();
+}
+
+void BrainData::syncLegacyPredictedBallPos()
+{
+    predictedBallPos.clear();
+    if (ballPredictionValid && pred100Field.valid) {
+        predictedBallPos.push_back({pred100Field.x, pred100Field.y});
+    }
 }
 
 vector<GameObject> BrainData::getMarkingsByType(set<string> types) {

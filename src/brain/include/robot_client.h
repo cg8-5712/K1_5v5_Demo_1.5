@@ -154,6 +154,13 @@ public:
     // 估算目前是否是静止站立状态
     bool isStandingStill(double timeBuffer = 1000);
 
+    void getLastCommandedVelocity(double &vx, double &vy, double &vtheta) const
+    {
+        vx = _vx;
+        vy = _vy;
+        vtheta = _vtheta;
+    }
+
 private:
     int call(booster_interface::msg::BoosterApiReqMsg msg);
     rclcpp::Publisher<booster_msgs::msg::RpcReqMsg>::SharedPtr publisher;

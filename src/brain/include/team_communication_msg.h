@@ -24,6 +24,10 @@ struct TeamCommunicationMsg
     double thetaRb;
     int cmdId; // 每个 player 发布时, 需要将 cmdId + 1. 用来代表发布的顺序. 
     int cmd; // 百位为 1 时, 代表自己要球控球. 十位为 1 时, 代表守门员要求另一个球员接替守门员角色, 此时个位数字代表接替球员的 playerId. 例如: 100, 代表自己要球控球, 另一个 striker 进入辅助角色; 011, 代表守门员要出击, 要求 1 号球员接替守门.  
+    uint32_t timestampMs = 0;
+    uint16_t packetSize = 0;
+    uint8_t tacticalRole = 0;  // 1=lead_striker 2=assist_striker 3=goal_keeper
+    uint8_t decisionCode = 0;    // 见 BrainCommunication::encodeDecision
 };
 
 struct TeamDiscoveryMsg

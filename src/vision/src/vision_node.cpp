@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <chrono>
 #include <functional>
 #include <filesystem>
 #include <iostream>
@@ -198,6 +199,23 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         line_segment_area_threshold_ = as_or<int>(node["field_marker_pose_estimator"]["line_segment_area_threshold"], 75);
     }
 
+    if (node["vision_profiler"]) {
+        VisionProfiler::Config profiler_cfg;
+        profiler_cfg.alert_fps_min = as_or<double>(node["vision_profiler"]["alert_fps_min"], 40.0);
+        profiler_cfg.alert_drop_rate_max = as_or<double>(node["vision_profiler"]["alert_drop_rate_max"], 2.0);
+        profiler_cfg.alert_e2e_p95_ms_max = as_or<double>(node["vision_profiler"]["alert_e2e_p95_ms_max"], 20.0);
+        profiler_cfg.alert_jitter_ms_max = as_or<double>(node["vision_profiler"]["alert_jitter_ms_max"], 5.0);
+        profiler_cfg.report_every_n_frames = as_or<int>(node["vision_profiler"]["report_every_n_frames"], 100);
+        vision_profiler_.setConfig(profiler_cfg);
+        std::cout << "vision_profiler enabled, report every " << profiler_cfg.report_every_n_frames << " frames"
+                  << std::endl;
+    }
+
+    if (node["ball_prefilter"]) {
+        ball_prefilter_conf_min_ = as_or<float>(node["ball_prefilter"]["conf_min"], 0.10f);
+    }
+    std::cout << "ball_prefilter conf_min: " << ball_prefilter_conf_min_ << std::endl;
+
     // init ros related
 
     std::cout << "current camera_type : " << camera_type_ << std::endl;
@@ -250,6 +268,8 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     if (use_depth_) {
         depth_sub_ = it_->subscribe(depth_topic, 2, &VisionNode::DepthCallback, this, nullptr, sub_opt_3);
     }
+    std::cout << "[VisionNode] detection color_sub topic=" << color_topic
+              << " depth=" << (use_depth_ ? depth_topic : "disabled") << std::endl;
 
     // auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1))
     // auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1))
@@ -271,13 +291,15 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
     detection_pub_ = this->create_publisher<vision_interface::msg::Detections>("/booster_vision/detection", rclcpp::QoS(1));
 
     if (node["segmentation_model"]) {
-        std::cout << "create sub for segmentor" << std::endl;
+        std::cout << "[VisionNode] create sub for segmentor on " << color_topic << std::endl;
+        std::cout.flush();
         if (camera_type_.find("compressed") != std::string::npos) {
             color_seg_sub_ = it_->subscribe(color_topic, 1, &VisionNode::SegmentationCallback, this, &hints, sub_opt_2);
         } else {
             color_seg_sub_ = it_->subscribe(color_topic, 1, &VisionNode::SegmentationCallback, this, nullptr, sub_opt_2);
         }
-        std::cout << "segmentor subscription created on topic: " << color_topic << std::endl;
+        std::cout << "[VisionNode] segmentor subscription ok" << std::endl;
+        std::cout.flush();
         field_line_pub_ = this->create_publisher<vision_interface::msg::LineSegments>("/booster_vision/line_segments", rclcpp::QoS(1));
     }
     ball_pub_ = this->create_publisher<vision_interface::msg::Ball>("/booster_vision/ball", rclcpp::QoS(1));
@@ -289,9 +311,25 @@ void VisionNode::Init(const std::string &cfg_template_path, const std::string &c
         calParam_sub_ = this->create_subscription<vision_interface::msg::CalParam>("/booster_vision/cal_param", 10, std::bind(&VisionNode::CalParamCallback, this, std::placeholders::_1));
         pose_tf_pub_ = this->create_publisher<geometry_msgs::msg::TransformStamped>("/booster_vision/t_head2base", rclcpp::QoS(10));
     }
+
+    std::cout << "[VisionNode] Init done"
+              << " offline=" << offline_mode_
+              << " use_depth=" << use_depth_
+              << " save_data=" << save_data_
+              << " segmentor=" << (segmentor_ != nullptr)
+              << " color=" << color_topic
+              << " pose=" << (offline_mode_ ? "/booster_vision/t_head2base" : "/head_pose")
+              << std::endl;
+    std::cout.flush();
 }
 
 void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg::Detections &detection_msg) {
+    using SteadyClock = std::chrono::steady_clock;
+    auto stage_start = SteadyClock::now();
+    auto elapsed_ms = [&](const SteadyClock::time_point &start) {
+        return std::chrono::duration<double, std::milli>(SteadyClock::now() - start).count();
+    };
+
     double timestamp = synced_data.color_data.timestamp;
     double depth_time_diff = (timestamp - synced_data.depth_data.timestamp) * 1000;
     double pose_time_diff = (timestamp - synced_data.pose_data.timestamp) * 1000;
@@ -316,8 +354,23 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
     std::cout << "det: p_eye2base: \n"
               << p_eye2base.toCVMat() << std::endl;
 
-    // inference
+    vision_profiler_.record("preprocess", elapsed_ms(stage_start));
+    stage_start = SteadyClock::now();
+
+    static uint64_t det_infer_log_count = 0;
+    const bool log_det_infer = (++det_infer_log_count <= 5);
+    if (log_det_infer) {
+        std::cout << "[VisionNode][det] TRT inference start #" << det_infer_log_count << std::endl;
+        std::cout.flush();
+    }
     auto detections = detector_->Inference(color);
+    if (log_det_infer) {
+        std::cout << "[VisionNode][det] TRT inference done #" << det_infer_log_count
+                  << " ms=" << elapsed_ms(stage_start) << std::endl;
+        std::cout.flush();
+    }
+    vision_profiler_.record("inference", elapsed_ms(stage_start));
+    stage_start = SteadyClock::now();
     std::cout << detections.size() << " objects detected." << std::endl;
 
     auto get_estimator = [&](const std::string &class_name) {
@@ -334,20 +387,27 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
 
     std::vector<booster_vision::DetectionRes> filtered_detections;
     if (enable_post_process_ && !detections.empty()) {
-        // filter detections with different confidence
-        if (!confidence_map_.empty()) {
-            for (auto &detection : detections) {
-                auto classname = classnames_[detection.class_id];
-                if (detection.confidence < confidence_map_[classname]) {
-                    continue;
+        auto passes_confidence = [&](const booster_vision::DetectionRes &detection) {
+            const auto classname = classnames_[detection.class_id];
+            if (!confidence_map_.empty()) {
+                const auto it = confidence_map_.find(classname);
+                if (it != confidence_map_.end() && detection.confidence < it->second) {
+                    return false;
                 }
+            }
+            if (classname == "Ball" && detection.confidence < ball_prefilter_conf_min_) {
+                return false;
+            }
+            return true;
+        };
+
+        for (auto &detection : detections) {
+            if (passes_confidence(detection)) {
                 filtered_detections.push_back(detection);
             }
-        } else {
-            filtered_detections = detections;
         }
 
-        // keep the highest ball detections
+        // Legacy: optional single-ball mode
         if (single_ball_assumption_) {
             std::vector<booster_vision::DetectionRes> ball_detections;
             std::vector<booster_vision::DetectionRes> filtered_detections_bk = filtered_detections;
@@ -373,8 +433,30 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             }
         }
     } else {
-        filtered_detections = detections;
+        for (auto &detection : detections) {
+            const auto classname = classnames_[detection.class_id];
+            if (classname == "Ball" && detection.confidence < ball_prefilter_conf_min_) {
+                continue;
+            }
+            filtered_detections.push_back(detection);
+        }
     }
+
+    {
+        int ball_cnt = 0;
+        for (const auto &det : filtered_detections) {
+            if (classnames_[det.class_id] == "Ball") {
+                ++ball_cnt;
+            }
+        }
+        static uint64_t post_log_count = 0;
+        if (++post_log_count <= 5 || post_log_count % 100 == 0) {
+            std::cout << "[vision] ball candidates after prefilter: " << ball_cnt << std::endl;
+        }
+    }
+
+    vision_profiler_.record("postprocess", elapsed_ms(stage_start));
+    stage_start = SteadyClock::now();
 
     std::vector<booster_vision::DetectionRes> detections_for_display;
     for (auto &detection : filtered_detections) {
@@ -419,6 +501,9 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         detections_for_display.push_back(detection);
     }
 
+    vision_profiler_.record("pose_estimate", elapsed_ms(stage_start));
+    stage_start = SteadyClock::now();
+
     // compute corner points positision
     std::vector<cv::Point2f> corner_uvs = {cv::Point2f(0, 0), cv::Point2f(color.cols - 1, 0),
                                            cv::Point2f(color.cols - 1, color.rows - 1), cv::Point2f(0, color.rows - 1),
@@ -427,27 +512,6 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
         auto corner_pos = CalculatePositionByIntersection(p_eye2base, uv, intr_);
         detection_msg.corner_pos.push_back(corner_pos.x);
         detection_msg.corner_pos.push_back(corner_pos.y);
-    }
-
-    // sync-radar measurements
-
-    // publish msg
-    detection_pub_->publish(detection_msg);
-    std::cout << std::endl;
-
-    // 新增: 打印两次检测发布时间间隔
-    {
-        static double last_pub_time = -1.0;
-        static uint64_t count = 0;
-        double pub_ts = detection_msg.header.stamp.sec +
-                        static_cast<double>(detection_msg.header.stamp.nanosec) * 1e-9;
-        if (last_pub_time >= 0.0) {
-            double diff_ms = (pub_ts - last_pub_time) * 1000.0;
-            std::cout << "[Detections Pub Interval] #" << (count) 
-                      << " -> #" << (count + 1) << ": " << diff_ms << " ms" << std::endl;
-        }
-        last_pub_time = pub_ts;
-        count++;
     }
 
     vision_interface::msg::Ball ball_msg;
@@ -471,7 +535,26 @@ void VisionNode::ProcessData(SyncedDataBlock &synced_data, vision_interface::msg
             break;
         }
     }
+
+    detection_pub_->publish(detection_msg);
     ball_pub_->publish(ball_msg);
+    vision_profiler_.record("publish", elapsed_ms(stage_start));
+    vision_profiler_.markPublished();
+    std::cout << std::endl;
+
+    {
+        static double last_pub_time = -1.0;
+        static uint64_t count = 0;
+        double pub_ts = detection_msg.header.stamp.sec +
+                        static_cast<double>(detection_msg.header.stamp.nanosec) * 1e-9;
+        if (last_pub_time >= 0.0) {
+            double diff_ms = (pub_ts - last_pub_time) * 1000.0;
+            std::cout << "[Detections Pub Interval] #" << (count) 
+                      << " -> #" << (count + 1) << ": " << diff_ms << " ms" << std::endl;
+        }
+        last_pub_time = pub_ts;
+        count++;
+    }
 
     // show vision results
     if (show_det_) {
@@ -514,6 +597,8 @@ void VisionNode::ColorCallback(const sensor_msgs::msg::Image::ConstSharedPtr &ms
         std::cerr << "empty image message." << std::endl;
         return;
     }
+
+    vision_profiler_.markReceive();
 
     // cv_bridge::CvImagePtr cv_ptr;
     cv::Mat img;
@@ -563,8 +648,22 @@ void VisionNode::ProcessSegmentationData(SyncedDataBlock &synced_data, vision_in
     std::cout << "seg: p_eye2base: \n"
               << p_eye2base.toCVMat() << std::endl;
 
-    // inference
+    static uint64_t seg_infer_log_count = 0;
+    const bool log_seg_infer = (++seg_infer_log_count <= 5);
+    if (log_seg_infer) {
+        std::cout << "[VisionNode][seg] TRT inference start #" << seg_infer_log_count << std::endl;
+        std::cout.flush();
+    }
+    const auto seg_infer_start = std::chrono::steady_clock::now();
     auto segmentations = segmentor_->Inference(color);
+    if (log_seg_infer) {
+        const double seg_ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - seg_infer_start)
+                                  .count();
+        std::cout << "[VisionNode][seg] TRT inference done #" << seg_infer_log_count
+                  << " ms=" << seg_ms << std::endl;
+        std::cout.flush();
+    }
     std::vector<FieldLineSegment> field_line_segs;
     for (auto &seg : segmentations) {
         // TODO: fit circle line
@@ -679,6 +778,11 @@ void VisionNode::PoseTFCallBack(const geometry_msgs::msg::TransformStamped::Shar
 }
 
 void VisionNode::PoseCallBack(const geometry_msgs::msg::Pose::SharedPtr msg) {
+    static bool first_pose = true;
+    if (first_pose) {
+        first_pose = false;
+        std::cout << "[VisionNode] first /head_pose received" << std::endl;
+    }
     auto current_time = this->get_clock()->now();
     double timestamp = static_cast<double>(current_time.nanoseconds()) * 1e-9;
 

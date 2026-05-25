@@ -87,6 +87,26 @@ private:
     rclcpp::Time timeLastTick; 
 };
 
+class KickSelector : public SyncActionNode
+{
+public:
+    KickSelector(const string &name, const NodeConfig &config, Brain *_brain)
+        : SyncActionNode(name, config), brain(_brain)
+    {
+    }
+    static PortsList providedPorts()
+    {
+        return {
+            InputPort<string>("decision_in", "", "StrikerDecide 输出或上一轮 decision"),
+            OutputPort<string>("decision_out"),
+        };
+    }
+    NodeStatus tick() override;
+
+private:
+    Brain *brain;
+};
+
 class NewDecide : public SyncActionNode
 {
 public:
@@ -298,6 +318,8 @@ private:
     int _msecKick = 1000;
     double _speed;
     double _minRange;
+    double _kickStartBallFieldX = 0.0;
+    double _kickStartBallFieldY = 0.0;
     tuple<double, double, double> _calcSpeed();
 };
 

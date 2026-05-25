@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <rclcpp/rclcpp.hpp>
 #include <rerun.hpp>
@@ -37,8 +38,13 @@
 #include "brain_log.h"
 #include "brain_tree.h"
 #include "brain_communication.h"
+#include "head_controller.h"
 #include "locator.h"
+#include "pos_predictor.h"
+#include "posProjector.h"
+#include "robot_frame_predictor.h"
 #include "robot_client.h"
+#include "training_logger.h"
 
 
 using namespace std;
@@ -65,7 +71,12 @@ public:
     std::shared_ptr<RobotClient> client;
     // locator 对象
     std::shared_ptr<Locator> locator;
-    // posProjector 对象，用于预测球的位置
+
+    std::unique_ptr<BallImmPredictor> ballImmPredictor_;
+    std::unique_ptr<RobotFramePredictor> robotFramePredictor_;
+    PosProjector posProjector_;
+    std::unique_ptr<HeadController> headController_;
+    std::unique_ptr<TrainingLogger> trainingLogger_;
 
     // BrainTree 对象，里面包含 BehaviorTree 相关的操作
     std::shared_ptr<BrainTree> tree;
@@ -103,7 +114,10 @@ public:
     bool isAngleGood(double goalPostMargin = 0.3, string type = "kick");
     bool isAngleGoodForDirectionalKick(double goalPostMargin = 0.3);
 
-    // 当前位置是否可以大力开球
+    // 球是否在 strategy.shoot.* 定义的 robot frame 射门窗口内
+    bool isInShootWindow();
+
+    // 当前位置是否可以大力开球（strategy.power_shoot.* 窗口）
     bool isPositionGoodForPowerShoot();
 
     // 计算当前向 dir 方向踢球的价值的大小.
@@ -305,6 +319,8 @@ private:
     // 输出重要的调试信息到 rerun log
     void logDebugInfo();
 
+    void logBallPrediction();
+
     void updateLogFile();
 
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joySubscription;
@@ -332,4 +348,7 @@ private:
     string getComLogString(); // 将多机通讯信息打印到 console, 可以在 brain.log 中查看
     void playSoundForFun();
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+    rclcpp::Time leadTakeoverStart_;
+    bool leadTakeoverPending_ = false;
 };

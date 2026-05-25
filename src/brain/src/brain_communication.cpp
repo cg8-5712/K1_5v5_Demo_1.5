@@ -1,6 +1,46 @@
 #include "brain.h"
 #include "brain_communication.h"
 
+namespace {
+
+uint32_t nowMs(const rclcpp::Clock::SharedPtr &clock)
+{
+    return static_cast<uint32_t>(clock->now().nanoseconds() / 1000000ULL);
+}
+
+uint32_t packetAgeMs(uint32_t sentMs, uint32_t now)
+{
+    if (sentMs == 0) {
+        return 0;
+    }
+    return now >= sentMs ? (now - sentMs) : (UINT32_MAX - sentMs + now);
+}
+
+uint8_t encodeTacticalRole(bool isLead, const std::string &playerRole)
+{
+    if (playerRole == "goal_keeper") {
+        return 3;
+    }
+    return isLead ? 1 : 2;
+}
+
+uint8_t encodeDecision(const std::string &decision)
+{
+    if (decision == "find") return 1;
+    if (decision == "chase") return 2;
+    if (decision == "adjust") return 3;
+    if (decision == "kick") return 4;
+    if (decision == "cross") return 5;
+    if (decision == "shoot") return 6;
+    if (decision == "assist") return 7;
+    if (decision == "auto_visual_kick") return 8;
+    if (decision == "power_shoot") return 9;
+    if (decision == "kick_select") return 10;
+    return 0;
+}
+
+} // namespace
+
 BrainCommunication::BrainCommunication(Brain *argBrain) : brain(argBrain)
 {
 }
@@ -369,7 +409,15 @@ void BrainCommunication::unicastCommunication() {
         msg.thetaRb = brain->data->robotBallAngleToField;
         msg.cmdId = brain->data->tmMyCmdId;
         msg.cmd = brain->data->tmMyCmd;
-        log(format("ImAlive: %d, ImLead: %d, myCost: %.1f, myCmdId: %d, myCmd: %d", msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
+        msg.timestampMs = nowMs(brain->get_clock());
+        msg.packetSize = static_cast<uint16_t>(sizeof(TeamCommunicationMsg));
+        msg.tacticalRole = encodeTacticalRole(
+            msg.isLead, brain->tree->getEntry<std::string>("player_role"));
+        msg.decisionCode = encodeDecision(brain->tree->getEntry<std::string>("decision"));
+        log(format(
+            "ImAlive: %d, ImLead: %d, myCost: %.1f, ts=%u, pkt=%u, tac=%u, dec=%u",
+            msg.isAlive, msg.isLead, msg.cost, msg.timestampMs, msg.packetSize, msg.tacticalRole,
+            msg.decisionCode));
 
         std::lock_guard<std::mutex> lock(_teammate_addresses_mutex);
         for (auto it = _teammate_addresses.begin(); it != _teammate_addresses.end(); ++it) {
@@ -513,10 +561,28 @@ void BrainCommunication::spinCommunicationReceiver() {
             continue;
         }
 
-        log(format("TMID: %.d, alive: %d, lead: %d, cost: %.1f, CmdId: %d, Cmd: %d", msg.playerId, msg.isAlive, msg.isLead, msg.cost, msg.cmdId, msg.cmd));
+        const uint32_t recvNowMs = nowMs(brain->get_clock());
+        const uint32_t ageMs = packetAgeMs(msg.timestampMs, recvNowMs);
+
+        brain->log->setTimeNow();
+        brain->log->log(format("debug/tm_age_ms_%d", msg.playerId), rerun::Scalar(static_cast<double>(ageMs)));
+        brain->log->log(format("debug/tm_packet_size_%d", msg.playerId),
+            rerun::Scalar(static_cast<double>(msg.packetSize > 0 ? msg.packetSize : sizeof(msg))));
+
+        if (msg.timestampMs > 0 && ageMs > static_cast<uint32_t>(brain->config->coopStaleThresholdMs)) {
+            log(format("stale reject TM%d age=%ums > %dms", msg.playerId, ageMs,
+                brain->config->coopStaleThresholdMs));
+            continue;
+        }
+
+        log(format("TMID: %d, alive: %d, lead: %d, cost: %.1f, age: %u, pkt: %u, CmdId: %d, Cmd: %d",
+            msg.playerId, msg.isAlive, msg.isLead, msg.cost, ageMs, msg.packetSize, msg.cmdId, msg.cmd));
 
         TMStatus &tmStatus = brain->data->tmStatus[tmIdx];
-        
+        tmStatus.lastPacketAgeMs = ageMs;
+        tmStatus.lastPacketSize =
+            msg.packetSize > 0 ? msg.packetSize : static_cast<uint16_t>(sizeof(msg));
+
         tmStatus.role = msg.playerRole == 1 ? "striker" : "goal_keeper";
         tmStatus.isAlive = msg.isAlive;
         tmStatus.ballDetected = msg.ballDetected;

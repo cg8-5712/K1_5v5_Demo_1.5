@@ -9,12 +9,59 @@ brain_node:
       treat_person_as_robot: false # 是否将人类视为机器人, 用于调试. !!!! 正式比赛时, 必须设置为 false !!!!
       number_of_players: 5
     
-    ball_predictor: 
-      step_interval: 100. 
-      step_cnt: 50 
-      linear_steps: 5 
-      linear_rsq_threshold: 0.98 
-      acceleration: -0.4 
+    ball_predictor:
+      step_interval: 100.
+      step_cnt: 50
+      linear_steps: 5
+      linear_rsq_threshold: 0.98
+      acceleration: -0.4
+      friction_decay_hz: 0.30
+      occlusion_noise_growth: 1.05
+      max_occluded_frames: 50
+      ball_confidence_decay_rate: 0.92
+      gate_chi2_threshold: 5.99
+      jump_dist_m_per_frame: 0.40
+      localization_trust_cov_max: 0.25
+
+    chase:
+      predict_msec: 100
+      approach_speed_mps: 0.40
+      slow_zone_radius_m: 0.50
+
+    kick_selector:
+      abort_confidence: 0.25
+      adjust_yaw_deg: 15.0
+      rlvision_range_max_m: 0.30
+      rlvision_yaw_deg: 8.0
+      rlvision_confidence_min: 0.50
+      shoot_dist_to_goal_max_m: 2.5
+      shoot_goal_angle_deg: 20.0
+
+    head_controller:
+      enabled: true
+      update_hz: 50.0
+      directed_max_frames: 25
+      directed_vel_min_mps: 0.10
+      directed_scan_deg: 30.0
+      directed_scan_hz: 0.5
+      sweep_hz: 0.5
+      track_smoother: 3.5
+      sweep_pitch_low: 1.0
+      sweep_pitch_high: 0.2
+
+    kick:
+      kick_window_msec: 300
+      future_window_msec: 150
+      enable_stable_kick: true
+      abort_ball_move_dist_m: 0.15
+      abort_confidence: 0.35
+      abort_yaw_deg: 20.0
+
+    power_shoot:
+      min_dist_to_goal_m: 1.5
+      max_dist_to_goal_m: 4.0
+      min_goal_angle_deg: 15.0
+      robot_stability_min: 0.8
       
     robot:
       robot_height: 0.90 
@@ -71,8 +118,13 @@ brain_node:
       auto_visual_kick_enable_angle: 0.8
       enable_auto_visual_defend: false 
       cooperation:
-        enable_role_switch: true 
-        ball_control_cost_threshold: 5.0 
+        enable_role_switch: true
+        ball_control_cost_threshold: 5.0
+        handover_margin_m: 0.30
+        lead_min_msec: 800
+        stale_threshold_ms: 500
+        vel_weight: 0.50
+        ball_dist_epsilon: 0.05
 
     obstacle_avoidance:
       depth_sample_step: 16 
@@ -116,7 +168,14 @@ brain_node:
     recovery:
       retry_max_count: 2
 
+    vision_profiler:
+      alert_fps_min: 40.0
+      alert_drop_rate_max: 2.0
+      alert_e2e_p95_ms_max: 20.0
+      alert_jitter_ms_max: 5.0
+
     vision:
+      ball_prefilter_conf_min: 0.10
       image_topic: "/camera/camera/color/image_raw" #realsense
       depth_image_topic: "/camera/camera/aligned_depth_to_color/image_raw" #realsense
       # image_topic: "/image_left_raw" # d-robotics
@@ -129,6 +188,11 @@ brain_node:
       cam_fov_y: 60.0 # 相机视场角, 单位: 度 realsense
       # cam_fov_x: 69.4 # 相机视场角, 单位: 度, d-robotics
       # cam_fov_y: 42.5 # 相机视场角, 单位: 度, d-robotics    
+
+    training_logger:
+      enabled: false
+      log_dir: "./training_logs"
+      hz: 20.0
 
     debug:
       log_ball_pos: false # 是否记录球位置到 ballpos.log 中, 用于调试
