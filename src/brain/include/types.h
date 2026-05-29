@@ -204,6 +204,8 @@ struct TMStatus {
     int cmd = 0; // 最后一次发出的指令 
     int cmdId = 0; // 最后一次发出的指令 ID
     rclcpp::Time timeLastCom; // 最后一次通讯时间
+    uint32_t lastPacketAgeMs = 0;
+    uint16_t lastPacketSize = 0;
 };
 
 

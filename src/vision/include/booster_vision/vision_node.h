@@ -20,6 +20,7 @@
 
 #include "booster_vision/base/intrin.h"
 #include "booster_vision/base/pose.h"
+#include "booster_vision/base/vision_profiler.hpp"
 
 #include "booster_vision/color_classifier.hpp"
 
@@ -73,6 +74,9 @@ private:
     // post processing
     bool enable_post_process_ = false;
     bool single_ball_assumption_ = false;
+    float ball_prefilter_conf_min_ = 0.10f;
+
+    VisionProfiler vision_profiler_;
     std::vector<std::string> classnames_;
     // std::vector<float> duration_list_;
     // std::vector<std::string> duration_name_list_;

@@ -17,6 +17,8 @@ int main(int argc, char **argv) {
     }
     node->Init(config_template_path, config_path);
 
+    std::cout << "[vision_node] entering executor.spin (threads=4)" << std::endl;
+    std::cout.flush();
     rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
     executor.add_node(node);
     executor.spin();

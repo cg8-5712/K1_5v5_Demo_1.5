@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <fstream>  // 添加这一行
@@ -48,6 +50,17 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<double>("strategy.near_ball_speed_limit", 0.3);
     declare_parameter<double>("strategy.near_ball_range", 4.0);
     declare_parameter<bool>("strategy.abort_kick_when_ball_moved", false);
+    declare_parameter<double>("strategy.abort_kick_ball_move_threshold", 0.3);
+    declare_parameter<bool>("strategy.abort_shoot_when_ball_moved", true);
+    declare_parameter<double>("strategy.ball_confidence_decay_rate", 3.0);
+    declare_parameter<bool>("strategy.enable_stable_kick", false);
+    declare_parameter<double>("strategy.kick_range", 1.0);
+    declare_parameter<double>("strategy.kick_theta_range", 0.2);
+    declare_parameter<bool>("strategy.soft_kickoff", false);
+    declare_parameter<double>("strategy.soft_kickoff_speed", 0.3);
+    declare_parameter<bool>("strategy.limit_speed_near_border", false);
+    declare_parameter<double>("strategy.near_border_speed_limit", 0.5);
+    declare_parameter<double>("strategy.near_border_dist_threshold", -1.0);
     declare_parameter<bool>("strategy.enable_bypass", false);
     declare_parameter<bool>("strategy.enable_shoot", false);
     declare_parameter<bool>("strategy.enable_directional_kick", false);
@@ -98,7 +111,8 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<bool>("obstacle_avoidance.avoid_during_kick", false);
     declare_parameter<double>("obstacle_avoidance.kick_ao_safe_dist", 1.0);
     declare_parameter<bool>("obstacle_avoidance.kick_ao_use_shoot", false);
-    
+    declare_parameter<bool>("obstacle_avoidance.always_turn_left", false);
+
     declare_parameter<int>("locator.min_marker_count", 5);
     declare_parameter<double>("locator.max_residual", 0.3);
 
@@ -128,6 +142,72 @@ Brain::Brain() : rclcpp::Node("brain_node")
     declare_parameter<string>("vision_config_local_path", "");
 
     declare_parameter<int>("recovery.retry_max_count", 2);
+
+    declare_parameter<double>("ball_predictor.friction_decay_hz", 0.30);
+    declare_parameter<double>("ball_predictor.occlusion_noise_growth", 1.05);
+    declare_parameter<int>("ball_predictor.max_occluded_frames", 50);
+    declare_parameter<double>("ball_predictor.ball_confidence_decay_rate", 0.92);
+    declare_parameter<double>("ball_predictor.gate_chi2_threshold", 5.99);
+    declare_parameter<double>("ball_predictor.jump_dist_m_per_frame", 0.40);
+    declare_parameter<double>("ball_predictor.localization_trust_cov_max", 0.25);
+    declare_parameter<double>("ball_predictor.step_interval", 100.0);
+    declare_parameter<int>("ball_predictor.step_cnt", 50);
+    declare_parameter<int>("ball_predictor.linear_steps", 5);
+    declare_parameter<double>("ball_predictor.linear_rsq_threshold", 0.98);
+    declare_parameter<double>("ball_predictor.acceleration", -0.4);
+
+    declare_parameter<int>("chase.predict_msec", 100);
+    declare_parameter<double>("chase.approach_speed_mps", 0.40);
+    declare_parameter<double>("chase.slow_zone_radius_m", 0.50);
+
+    declare_parameter<int>("kick.kick_window_msec", 300);
+    declare_parameter<int>("kick.future_window_msec", 150);
+    declare_parameter<bool>("kick.enable_stable_kick", true);
+    declare_parameter<double>("kick.abort_ball_move_dist_m", 0.15);
+    declare_parameter<double>("kick.abort_confidence", 0.35);
+    declare_parameter<double>("kick.abort_yaw_deg", 20.0);
+
+    declare_parameter<double>("power_shoot.min_dist_to_goal_m", 1.5);
+    declare_parameter<double>("power_shoot.max_dist_to_goal_m", 4.0);
+    declare_parameter<double>("power_shoot.min_goal_angle_deg", 15.0);
+    declare_parameter<double>("power_shoot.robot_stability_min", 0.8);
+
+    declare_parameter<double>("strategy.cooperation.handover_margin_m", 0.30);
+    declare_parameter<int>("strategy.cooperation.lead_min_msec", 800);
+    declare_parameter<int>("strategy.cooperation.stale_threshold_ms", 500);
+    declare_parameter<double>("strategy.cooperation.vel_weight", 0.50);
+    declare_parameter<double>("strategy.cooperation.ball_dist_epsilon", 0.05);
+
+    declare_parameter<double>("vision_profiler.alert_fps_min", 40.0);
+    declare_parameter<double>("vision_profiler.alert_drop_rate_max", 2.0);
+    declare_parameter<double>("vision_profiler.alert_e2e_p95_ms_max", 20.0);
+    declare_parameter<double>("vision_profiler.alert_jitter_ms_max", 5.0);
+
+    declare_parameter<double>("vision.ball_prefilter_conf_min", 0.10);
+    declare_parameter<bool>("debug.log_ball_pos", false);
+
+    declare_parameter<bool>("head_controller.enabled", true);
+    declare_parameter<double>("head_controller.update_hz", 50.0);
+    declare_parameter<int>("head_controller.directed_max_frames", 25);
+    declare_parameter<double>("head_controller.directed_vel_min_mps", 0.1);
+    declare_parameter<double>("head_controller.directed_scan_deg", 30.0);
+    declare_parameter<double>("head_controller.directed_scan_hz", 0.5);
+    declare_parameter<double>("head_controller.sweep_hz", 0.5);
+    declare_parameter<double>("head_controller.track_smoother", 3.5);
+    declare_parameter<double>("head_controller.sweep_pitch_low", 1.0);
+    declare_parameter<double>("head_controller.sweep_pitch_high", 0.2);
+
+    declare_parameter<double>("kick_selector.abort_confidence", 0.25);
+    declare_parameter<double>("kick_selector.adjust_yaw_deg", 15.0);
+    declare_parameter<double>("kick_selector.rlvision_range_max_m", 0.30);
+    declare_parameter<double>("kick_selector.rlvision_yaw_deg", 8.0);
+    declare_parameter<double>("kick_selector.rlvision_confidence_min", 0.50);
+    declare_parameter<double>("kick_selector.shoot_dist_to_goal_max_m", 2.5);
+    declare_parameter<double>("kick_selector.shoot_goal_angle_deg", 20.0);
+
+    declare_parameter<bool>("training_logger.enabled", false);
+    declare_parameter<string>("training_logger.log_dir", "./training_logs");
+    declare_parameter<double>("training_logger.hz", 20.0);
 }
 
 Brain::~Brain()
@@ -142,6 +222,10 @@ void Brain::init()
     loadConfig();
 
     data = std::make_shared<BrainData>();
+    ballImmPredictor_ = std::make_unique<BallImmPredictor>();
+    robotFramePredictor_ = std::make_unique<RobotFramePredictor>();
+    headController_ = std::make_unique<HeadController>(this);
+    trainingLogger_ = std::make_unique<TrainingLogger>(this);
     locator = std::make_shared<Locator>();
     log = std::make_shared<BrainLog>(this);
     tree = std::make_shared<BrainTree>(this);
@@ -163,6 +247,10 @@ void Brain::init()
     
     communication->initCommunication();
 
+    ballImmPredictor_->configure(*config);
+    robotFramePredictor_->configure(get_clock(), *config);
+    posProjector_.init(locator, data, tree, config, get_clock());
+
     data->lastSuccessfulLocalizeTime = get_clock()->now();
     data->timeLastDet = get_clock()->now();
     data->timeLastLineDet = get_clock()->now();
@@ -176,6 +264,8 @@ void Brain::init()
         data->tmStatus[i].timeLastCom = now;
     }
     data->tmLastCmdChangeTime = now;
+    leadTakeoverStart_ = now;
+    leadTakeoverPending_ = false;
 
    
     detectionsSubscription = create_subscription<vision_interface::msg::Detections>("/booster_vision/detection", SUB_STATE_QUEUE_SIZE, bind(&Brain::detectionsCallback, this, _1));
@@ -195,6 +285,18 @@ void Brain::init()
     pubSoundPlay = create_publisher<std_msgs::msg::String>("/play_sound", 10);
     pubSpeak = create_publisher<std_msgs::msg::String>("/speak", 10);
     pubKickBall = create_publisher<brain::msg::Kick>("/kick_ball", 10);
+
+    headController_->init();
+    trainingLogger_->init();
+    if (config->headControllerEnabled) {
+        const int hz = std::max(1, static_cast<int>(std::lround(config->headControllerHz)));
+        const auto period = std::chrono::milliseconds(1000 / hz);
+        timer_ = create_wall_timer(period, [this]() {
+            if (headController_) {
+                headController_->update();
+            }
+        });
+    }
 }
 
 void Brain::loadConfig()
@@ -216,10 +318,79 @@ void Brain::loadConfig()
     get_parameter("robot.vtheta_limit", config->vthetaLimit);
 
     get_parameter("strategy.ball_confidence_threshold", config->ballConfidenceThreshold);
+    get_parameter("strategy.ball_confidence_decay_rate", config->ballConfidenceDecayRate);
+    get_parameter("strategy.enable_stable_kick", config->enableStableKick);
     get_parameter("strategy.tm_ball_dist_threshold", config->tmBallDistThreshold);
     get_parameter("strategy.limit_near_ball_speed", config->limitNearBallSpeed);
     get_parameter("strategy.near_ball_speed_limit", config->nearBallSpeedLimit);
     get_parameter("strategy.near_ball_range", config->nearBallRange);
+
+    get_parameter("ball_predictor.friction_decay_hz", config->immFrictionDecayHz);
+    get_parameter("ball_predictor.occlusion_noise_growth", config->immOcclusionNoiseGrowth);
+    get_parameter("ball_predictor.max_occluded_frames", config->immMaxOccludedFrames);
+    get_parameter("ball_predictor.ball_confidence_decay_rate", config->immBallConfidenceDecayRate);
+    get_parameter("ball_predictor.gate_chi2_threshold", config->immGateChi2Threshold);
+    get_parameter("ball_predictor.jump_dist_m_per_frame", config->immJumpDistMPerFrame);
+    get_parameter("ball_predictor.localization_trust_cov_max", config->immLocalizationTrustCovMax);
+
+    get_parameter("chase.predict_msec", config->chasePredictMsec);
+    get_parameter("chase.approach_speed_mps", config->chaseApproachSpeedMps);
+    get_parameter("chase.slow_zone_radius_m", config->chaseSlowZoneRadiusM);
+
+    get_parameter("kick.kick_window_msec", config->kickWindowMsec);
+    get_parameter("kick.future_window_msec", config->kickFutureWindowMsec);
+    get_parameter("kick.abort_ball_move_dist_m", config->kickAbortBallMoveDistM);
+    get_parameter("kick.abort_confidence", config->kickAbortConfidence);
+    get_parameter("kick.abort_yaw_deg", config->kickAbortYawDeg);
+    {
+        bool kickEnableStable = config->enableStableKick;
+        get_parameter("kick.enable_stable_kick", kickEnableStable);
+        config->enableStableKick = kickEnableStable;
+    }
+
+    get_parameter("power_shoot.min_dist_to_goal_m", config->psMinDistToGoalM);
+    get_parameter("power_shoot.max_dist_to_goal_m", config->psMaxDistToGoalM);
+    get_parameter("power_shoot.min_goal_angle_deg", config->psMinGoalAngleDeg);
+    get_parameter("power_shoot.robot_stability_min", config->psRobotStabilityMin);
+
+    get_parameter("strategy.cooperation.handover_margin_m", config->coopHandoverMarginM);
+    get_parameter("strategy.cooperation.lead_min_msec", config->coopLeadMinMsec);
+    get_parameter("strategy.cooperation.stale_threshold_ms", config->coopStaleThresholdMs);
+    get_parameter("strategy.cooperation.vel_weight", config->coopVelWeight);
+    get_parameter("strategy.cooperation.ball_dist_epsilon", config->coopBallDistEpsilon);
+
+    get_parameter("vision_profiler.alert_fps_min", config->visionProfilerAlertFpsMin);
+    get_parameter("vision_profiler.alert_drop_rate_max", config->visionProfilerAlertDropRateMax);
+    get_parameter("vision_profiler.alert_e2e_p95_ms_max", config->visionProfilerAlertE2eP95MsMax);
+    get_parameter("vision_profiler.alert_jitter_ms_max", config->visionProfilerAlertJitterMsMax);
+
+    get_parameter("vision.ball_prefilter_conf_min", config->visionBallPrefilterConfMin);
+    get_parameter("debug.log_ball_pos", config->debugLogBallPos);
+
+    get_parameter("head_controller.enabled", config->headControllerEnabled);
+    get_parameter("head_controller.update_hz", config->headControllerHz);
+    get_parameter("head_controller.directed_max_frames", config->headDirectedMaxFrames);
+    get_parameter("head_controller.directed_vel_min_mps", config->headDirectedVelMin);
+    double directedScanDeg = 30.0;
+    get_parameter("head_controller.directed_scan_deg", directedScanDeg);
+    config->headDirectedScanRad = deg2rad(directedScanDeg);
+    get_parameter("head_controller.directed_scan_hz", config->headDirectedScanHz);
+    get_parameter("head_controller.sweep_hz", config->headSweepHz);
+    get_parameter("head_controller.track_smoother", config->headTrackSmoother);
+    get_parameter("head_controller.sweep_pitch_low", config->headSweepPitchLow);
+    get_parameter("head_controller.sweep_pitch_high", config->headSweepPitchHigh);
+
+    get_parameter("kick_selector.abort_confidence", config->ksAbortConfidence);
+    get_parameter("kick_selector.adjust_yaw_deg", config->ksAdjustYawDeg);
+    get_parameter("kick_selector.rlvision_range_max_m", config->ksRlvisionRangeMaxM);
+    get_parameter("kick_selector.rlvision_yaw_deg", config->ksRlvisionYawDeg);
+    get_parameter("kick_selector.rlvision_confidence_min", config->ksRlvisionConfMin);
+    get_parameter("kick_selector.shoot_dist_to_goal_max_m", config->ksShootDistToGoalMaxM);
+    get_parameter("kick_selector.shoot_goal_angle_deg", config->ksShootGoalAngleDeg);
+
+    get_parameter("training_logger.enabled", config->trainingLoggerEnabled);
+    get_parameter("training_logger.log_dir", config->trainingLoggerLogDir);
+    get_parameter("training_logger.hz", config->trainingLoggerHz);
 
     get_parameter("obstacle_avoidance.collision_threshold", config->collisionThreshold);
     get_parameter("obstacle_avoidance.safe_distance", config->safeDistance);
@@ -309,6 +480,9 @@ void Brain::tick()
     updateLogFile();
     
     updateMemory();
+    if (trainingLogger_) {
+        trainingLogger_->tick();
+    }
     handleSpecialStates();
     handleCooperation();
 
@@ -526,37 +700,63 @@ void Brain::handleCooperation() {
     }
 
 
-    double tmMinCost = 1e5;
+    double minCostVal = data->tmMyCost;
+    int minCostIdx = selfIdx;
     int myCostRank = 0;
     int myStrikerIDRank = 0;
-    for (int i = 0; i < aliveTmIdxs.size(); i++) {
-        int tmIdx = aliveTmIdxs[i];
-        auto tmStatus = data->tmStatus[tmIdx];
-        if (tmStatus.cost < tmMinCost) tmMinCost = tmStatus.cost;
-        if (tmStatus.cost < data->tmMyCost) myCostRank++;
-        if (tmIdx < selfIdx && tmStatus.role == "striker") myStrikerIDRank++;
+    for (int i = 0; i < static_cast<int>(aliveTmIdxs.size()); i++) {
+        const int tmIdx = aliveTmIdxs[i];
+        const auto &tmStatus = data->tmStatus[tmIdx];
+        if (tmStatus.cost < minCostVal) {
+            minCostVal = tmStatus.cost;
+            minCostIdx = tmIdx;
+        }
+        if (tmStatus.cost < data->tmMyCost) {
+            myCostRank++;
+        }
+        if (tmIdx < selfIdx && tmStatus.role == "striker") {
+            myStrikerIDRank++;
+        }
     }
+    const double tmMinCost = minCostVal;
     data->tmMyCostRank = myCostRank;
     data->myStrikerIDRank = myStrikerIDRank;
 
-    double BALL_CONTROL_COST_THRESHOLD = 3.0;
-    get_parameter("strategy.cooperation.ball_control_cost_threshold", BALL_CONTROL_COST_THRESHOLD);
+    const double handoverMargin = config->coopHandoverMarginM;
+    const int leadMinMsec = config->coopLeadMinMsec;
+    const bool naturallyLead = (minCostIdx == selfIdx);
 
-    if (
-        (tmMinCost < BALL_CONTROL_COST_THRESHOLD && data->tmMyCost > tmMinCost)
-        || myCostRank >= 2
-    ) {
-
-        data->tmImLead = false;
-        tree->setEntry<bool>("is_lead", false);
-        log_("I am not lead");
-
-    } else {
+    if (naturallyLead) {
         data->tmImLead = true;
-        tree->setEntry<bool>("is_lead", true);
-        log_("I am Lead");
+        leadTakeoverPending_ = false;
+        log_("I am lead (min cost rank 0)");
+    } else if (data->tmMyCost >= data->tmStatus[minCostIdx].cost - handoverMargin) {
+        leadTakeoverPending_ = false;
+        data->tmImLead = false;
+        log_(format("I am not lead (my=%.2f min=%.2f)", data->tmMyCost, minCostVal));
+    } else {
+        if (!leadTakeoverPending_) {
+            leadTakeoverPending_ = true;
+            leadTakeoverStart_ = get_clock()->now();
+            log_(format("lead takeover pending (my=%.2f lead=%.2f)",
+                data->tmMyCost, data->tmStatus[minCostIdx].cost));
+        }
+        data->tmImLead = msecsSince(leadTakeoverStart_) >= leadMinMsec;
+        if (data->tmImLead) {
+            log_(format("lead takeover confirmed after %dms", leadMinMsec));
+        }
     }
-    log_(format("tmMinCost: %.1f, myCost: %.1f, myCostRank: %d, myStrikerIDRank: %d", tmMinCost, data->tmMyCost, myCostRank, myStrikerIDRank));
+
+    const string playerRole = tree->getEntry<string>("player_role");
+    string tacticalRole = "goal_keeper";
+    if (playerRole == "striker") {
+        tacticalRole = data->tmImLead ? "lead_striker" : "assist_striker";
+    }
+    tree->setEntry<string>("tactical_role", tacticalRole);
+    tree->setEntry<bool>("is_lead", data->tmImLead);
+
+    log_(format("tmMinCost: %.1f, myCost: %.1f, myCostRank: %d, minCostPlayer: %d, tactical: %s",
+        tmMinCost, data->tmMyCost, myCostRank, minCostIdx + 1, tacticalRole.c_str()));
 
 
     if (
@@ -619,8 +819,6 @@ void Brain::handleCooperation() {
         data->tmReceivedCmd = 0; 
     }
 
-    tree->setEntry<bool>("is_lead", data->tmImLead);
-
     if (
         (tree->getEntry<string>("gc_game_state") == "READY" || tree->getEntry<string>("gc_game_sub_state") == "GET_READY") 
         && gcAliveCount == numOfPlayers
@@ -636,9 +834,101 @@ void Brain::handleCooperation() {
 void Brain::updateMemory()
 {
     updateBallMemory();
+    updateBallPrediction();
     updateRobotMemory();
     updateObstacleMemory();
     updateKickoffMemory();
+}
+
+void Brain::updateBallPrediction()
+{
+    if (posProjector_.isLocalizationTrusted()) {
+        const BallPrediction pred = ballImmPredictor_->getPrediction();
+        if (!pred.valid) {
+            data->resetBallPrediction();
+            tree->setEntry<bool>("ball_prediction_valid", false);
+            tree->setEntry<bool>("pred300_valid", false);
+            tree->setEntry<bool>("using_field_frame", false);
+            return;
+        }
+
+        data->filteredBallField = {pred.pos[0], pred.pos[1], true};
+        data->pred100Field = {pred.pred100[0], pred.pred100[1], true};
+        data->pred300Field = {pred.pred300[0], pred.pred300[1], true};
+        data->ballConfidence = pred.confidence;
+        data->ballModeProb[0] = pred.mode_prob[0];
+        data->ballModeProb[1] = pred.mode_prob[1];
+        data->ballPredictionValid = true;
+        data->pred300Valid = pred.pred300_valid;
+        data->usingFieldFrame = true;
+
+        tree->setEntry<bool>("ball_prediction_valid", true);
+        tree->setEntry<bool>("pred300_valid", pred.pred300_valid);
+        tree->setEntry<bool>("using_field_frame", true);
+    } else {
+        const RobotFrameBallPrediction pred = robotFramePredictor_->getPrediction();
+        if (!pred.valid) {
+            data->resetBallPrediction();
+            tree->setEntry<bool>("ball_prediction_valid", false);
+            tree->setEntry<bool>("pred300_valid", false);
+            tree->setEntry<bool>("using_field_frame", false);
+            return;
+        }
+
+        data->pred100Robot = {pred.pred100[0], pred.pred100[1], true};
+        data->ballConfidence = pred.confidence;
+        data->ballModeProb[0] = 0.5f;
+        data->ballModeProb[1] = 0.5f;
+        data->ballPredictionValid = true;
+        data->pred300Valid = false;
+        data->usingFieldFrame = false;
+
+        tree->setEntry<bool>("ball_prediction_valid", true);
+        tree->setEntry<bool>("pred300_valid", false);
+        tree->setEntry<bool>("using_field_frame", false);
+    }
+
+    if (data->pred300Valid && data->pred300Field.valid) {
+        data->robotBallAngleToField = atan2(
+            data->pred300Field.y - data->robotPoseToField.y,
+            data->pred300Field.x - data->robotPoseToField.x);
+    } else if (data->ballPredictionValid && data->usingFieldFrame && data->pred100Field.valid) {
+        data->robotBallAngleToField = atan2(
+            data->pred100Field.y - data->robotPoseToField.y,
+            data->pred100Field.x - data->robotPoseToField.x);
+    }
+
+    data->ballPosPredictTime = get_clock()->now();
+    data->syncLegacyPredictedBallPos();
+}
+
+void Brain::logBallPrediction()
+{
+    if (!log)
+        return;
+    log->setTimeNow();
+    if (data->ballPredictionValid && data->usingFieldFrame && data->pred100Field.valid) {
+        log->log("field/pred100", rerun::Points2D({{data->pred100Field.x, -data->pred100Field.y}})
+            .with_colors({0xFF8800FF}));
+        if (data->pred300Valid && data->pred300Field.valid) {
+            log->log("field/pred300", rerun::Points2D({{data->pred300Field.x, -data->pred300Field.y}})
+                .with_colors({0xFF0088FF}));
+        }
+    } else if (data->ballPredictionValid && data->pred100Robot.valid) {
+        double fx = 0.0;
+        double fy = 0.0;
+        posProjector_.robotToField(data->pred100Robot.x, data->pred100Robot.y, fx, fy);
+        log->log("field/pred100_robot_fallback", rerun::Points2D({{fx, -fy}})
+            .with_colors({0x88FF00FF}));
+    }
+    log->log("debug/ball_confidence_scalar", rerun::Scalar(data->ballConfidence));
+    log->log("debug/ball_prediction_valid_scalar", rerun::Scalar(data->ballPredictionValid ? 1.0 : 0.0));
+    log->log("debug/pred300_valid_scalar", rerun::Scalar(data->pred300Valid ? 1.0 : 0.0));
+    log->log("debug/using_field_frame_scalar", rerun::Scalar(data->usingFieldFrame ? 1.0 : 0.0));
+    if (headController_ && config->headControllerEnabled) {
+        log->log("debug/head_controller_mode_scalar",
+            rerun::Scalar(static_cast<double>(headController_->lastModeIndex())));
+    }
 }
 
 void Brain::updateObstacleMemory() {
@@ -671,6 +961,44 @@ void Brain::updateObstacleMemory() {
 
 void Brain::updateBallMemory()
 {
+    if (data->pendingBallDetectionsReady) {
+        detectProcessBalls(data->pendingBallDetections);
+        data->pendingBallDetectionsReady = false;
+        data->pendingBallDetections.clear();
+    }
+
+    double dt = 0.02;
+    if (data->lastTick.nanoseconds() > 0) {
+        dt = (get_clock()->now() - data->lastTick).seconds();
+        if (dt <= 0.0 || dt > 0.5) {
+            dt = 0.02;
+        }
+    }
+
+    ballImmPredictor_->propagate(dt);
+    robotFramePredictor_->propagate(dt);
+
+    const double confScale = max(config->ballConfidenceThreshold, 1e-3);
+    if (data->ballDetected) {
+        const double rx = data->ball.posToRobot.x;
+        const double ry = data->ball.posToRobot.y;
+        const double range = data->ball.range;
+        const double conf = min(1.0, max(0.0, data->ball.confidence / confScale));
+
+        robotFramePredictor_->add(rx, ry, conf, range);
+
+        if (posProjector_.isLocalizationTrusted()) {
+            double fx = 0.0;
+            double fy = 0.0;
+            posProjector_.robotToField(rx, ry, fx, fy);
+            ballImmPredictor_->add(fx, fy, conf, range);
+        }
+    } else {
+        if (ballImmPredictor_->hasEstimate()) {
+            ballImmPredictor_->handleOccluded();
+        }
+        robotFramePredictor_->handleOccluded();
+    }
 
     double secs = msecsSince(data->ball.timePoint) / 1000;
     
@@ -816,23 +1144,31 @@ void Brain::updateCostToKick() {
         log->setTimeNow();
         log->log("debug/updateCostToKick", rerun::TextLog(msg));
     };
-    double cost = 0.;
 
+    const double d = data->ball.range;
+    double vBall = 0.0;
+    if (ballImmPredictor_->hasEstimate()) {
+        const BallPrediction pred = ballImmPredictor_->getPrediction();
+        vBall = std::hypot(pred.vel[0], pred.vel[1]);
+    } else {
+        const RobotFrameBallPrediction pred = robotFramePredictor_->getPrediction();
+        if (pred.valid) {
+            vBall = std::hypot(pred.vel[0], pred.vel[1]);
+        }
+    }
 
-    // if (!data->ballDetected) cost += 2.0;
+    const double eps = std::max(1e-3, config->coopBallDistEpsilon);
+    double cost = d + config->coopVelWeight * d / (vBall + eps);
+    log_(format("lead dist cost: d=%.2f v=%.2f base=%.2f", d, vBall, cost));
+
     double secsSinceBallDet = msecsSince(data->ball.timePoint) / 1000;
     cost += secsSinceBallDet;
     log_(format("ball not dectect cost: %.1f", secsSinceBallDet));
-
 
     if (!tree->getEntry<bool>("ball_location_known")) {
         cost += 5.0;
         log_(format("ball lost cost: %.1f", 5.0));
     }
-
-
-    cost += data->ball.range;
-    log_(format("ball range cost: %.1f", data->ball.range));
     
     
 
@@ -907,6 +1243,53 @@ bool Brain::isAngleGood(double goalPostMargin, string type) {
     }
 
     return (theta_l > angle && theta_r < angle);
+}
+
+namespace {
+
+bool ballInRobotFrameRect(double x, double y, double xmin, double xmax, double ymin, double ymax)
+{
+    return x >= xmin && x <= xmax && y >= ymin && y <= ymax;
+}
+
+} // namespace
+
+bool Brain::isInShootWindow()
+{
+    if (!data->ballDetected)
+        return false;
+
+    double xmin = 0.2, xmax = 0.6, ymin = -0.3, ymax = 0.3;
+    get_parameter("strategy.shoot.xmin", xmin);
+    get_parameter("strategy.shoot.xmax", xmax);
+    get_parameter("strategy.shoot.ymin", ymin);
+    get_parameter("strategy.shoot.ymax", ymax);
+
+    const double ballX = data->ball.posToRobot.x;
+    const double ballY = data->ball.posToRobot.y;
+    if (!ballInRobotFrameRect(ballX, ballY, xmin, xmax, ymin, ymax))
+        return false;
+
+    return isAngleGood(config->goalPostMargin, "shoot");
+}
+
+bool Brain::isPositionGoodForPowerShoot()
+{
+    if (!data->ballDetected)
+        return false;
+
+    double xmin = 1.1, xmax = 1.5, ymin = -0.3, ymax = 0.3;
+    get_parameter("strategy.power_shoot.xmin", xmin);
+    get_parameter("strategy.power_shoot.xmax", xmax);
+    get_parameter("strategy.power_shoot.ymin", ymin);
+    get_parameter("strategy.power_shoot.ymax", ymax);
+
+    const double ballX = data->ball.posToRobot.x;
+    const double ballY = data->ball.posToRobot.y;
+    if (!ballInRobotFrameRect(ballX, ballY, xmin, xmax, ymin, ymax))
+        return false;
+
+    return isAngleGood(config->goalPostMargin, "shoot");
 }
 
 bool Brain::isPrimaryStriker() {
@@ -1435,8 +1818,9 @@ void Brain::detectionsCallback(const vision_interface::msg::Detections &msg)
             markings.push_back(obj);
     }
 
-    // 分别处理分组后的对象
-    detectProcessBalls(balls);
+    data->pendingBallDetections = std::move(balls);
+    data->pendingBallDetectionsReady = true;
+
     detectProcessGoalposts(goalposts);
     detectProcessMarkings(markings);
     detectProcessRobots(robots);
@@ -1660,6 +2044,11 @@ void Brain::lowStateCallback(const booster_interface::msg::LowState &msg)
 {
     data->headYaw = msg.motor_state_serial[0].q;
     data->headPitch = msg.motor_state_serial[1].q;
+    if (msg.imu_state.acc.size() >= 3) {
+        data->imuAcc[0] = msg.imu_state.acc[0];
+        data->imuAcc[1] = msg.imu_state.acc[1];
+        data->imuAcc[2] = msg.imu_state.acc[2];
+    }
     log->log("debug/head_angles", rerun::TextLog(format("pitch: %.1f, yaw: %.1f", data->headYaw, data->headPitch)));
 }
 
@@ -2075,92 +2464,146 @@ vector<GameObject> Brain::getGameObjects(const vision_interface::msg::Detections
 void Brain::detectProcessBalls(const vector<GameObject> &ballObjs)
 {
     static rclcpp::Time lastSeenRealBallTime;
-    double bestConfidence = 0;
-    int indexRealBall = -1;  // 认为哪一个球是真的, -1 表示没有检测到球
+    static int gateFailStreak = 0;
 
-    // 找出最可能的真球
-    for (int i = 0; i < ballObjs.size(); i++)
-    {
-        auto ballObj = ballObjs[i];
-        auto oldBall = data->ball;
+    struct ScoredBall {
+        int index = -1;
+        double score = 0.0;
+        bool gate_abnormal = false;
+    };
 
-        // 防止把天上的灯识别为球
-        if (ballObj.posToRobot.x < -0.5 || ballObj.posToRobot.x > 15.0)
+    const double confScale = max(config->ballConfidenceThreshold, 1e-3);
+    const double fieldMargin = max(config->ballOutThreshold, 2.0);
+    const double halfLen = config->fieldDimensions.length / 2.0 + fieldMargin;
+    const double halfWid = config->fieldDimensions.width / 2.0 + fieldMargin;
+    const bool gatingActive =
+        posProjector_.isLocalizationTrusted() && ballImmPredictor_->hasEstimate();
+
+    vector<ScoredBall> candidates;
+    candidates.reserve(ballObjs.size());
+
+    for (int i = 0; i < static_cast<int>(ballObjs.size()); ++i) {
+        const auto &ballObj = ballObjs[i];
+
+        // 防止把天上的灯 / 身后误检当作球
+        if (ballObj.posToRobot.x < -0.5 || ballObj.posToRobot.x > 15.0) {
             continue;
+        }
 
-        // 排除在场外太远的球, 注意这个功能会影响 cahse 等功能. 先不采用.
-        // if (isBallOut(2.0, 2.0))
-        //     continue;
-
-        // 如果检测出的球与上次看到的球, 距离和时间都很近, 则对其 confidence 进行适当加分
-        // double c = ballObj.confidence;
-        // double oldC = oldBall.confidence;
-        // double msecs = msecsSince(oldBall.timePoint);
-        // double dist = norm(ballObj.posToField.x - oldBall.posToField.x, ballObj.posToField.y - oldBall.posToField.y);
-        // ballObj.confidence += 0.5 * max(oldC, 0.0) * max(1 - msecs/1000, 0.0) * max(1 - dist / 2, 0.0);
-        // ballObj.confidence = min(100.0, ballObj.confidence);
-        // log->setTimeNow();
-        // log->log("/debug/oldc_newc", rerun::TextLog(format(
-        //     "oldc: %.2f  newc: %.2f",
-        //     oldC,
-        //     ballObj.confidence
-        // )));
-
-        // 判断: 如果置信度太低, 则认为是误检
-        if (ballObj.confidence < config->ballConfidenceThreshold)
+        // 1. confidence 过滤
+        if (ballObj.confidence < config->ballConfidenceThreshold) {
             continue;
+        }
 
-        // TODO 加入更多排除参数, 例如在身体上, 明显在球场外, 位置突然大幅度变化等
-        // 被遮挡的条件要加入. 如果突然消失, 没有遮挡的话, 则只相信一小会儿, 如果有遮挡, 可以相信比较长的时间.
+        // 2. field 边界过滤（场地外 fieldMargin 以上）
+        if (fabs(ballObj.posToField.x) > halfLen || fabs(ballObj.posToField.y) > halfWid) {
+            continue;
+        }
 
-        // 找出剩下的球中, 置信度最高的
-        if (ballObj.confidence > bestConfidence)
-        {
-            bestConfidence = ballObj.confidence;
-            indexRealBall = i;
+        ScoredBall cand;
+        cand.index = i;
+
+        if (gatingActive) {
+            const double mahaSq = ballImmPredictor_->gateMahalanobisSq(
+                ballObj.posToField.x, ballObj.posToField.y, ballObj.range);
+            cand.gate_abnormal =
+                mahaSq >= 0.0 && mahaSq > config->immGateChi2Threshold;
+        }
+
+        // 5. score 融合
+        const double confNorm = min(1.0, ballObj.confidence / confScale);
+        const double bboxW = max(1.0, ballObj.boundingBox.xmax - ballObj.boundingBox.xmin);
+        const double bboxH = max(1.0, ballObj.boundingBox.ymax - ballObj.boundingBox.ymin);
+        const double sizeWeight = min(1.5, max(0.5, sqrt(bboxW * bboxH / 1600.0)));
+
+        double historyWeight = 1.0;
+        if (data->ballDetected && tree->getEntry<bool>("ball_location_known")) {
+            const double oldC = min(1.0, data->ball.confidence / confScale);
+            const double msecs = msecsSince(data->ball.timePoint);
+            const double dist = norm(
+                ballObj.posToField.x - data->ball.posToField.x,
+                ballObj.posToField.y - data->ball.posToField.y);
+            historyWeight = 1.0 + 0.5 * oldC * max(0.0, 1.0 - msecs / 1000.0) * max(0.0, 1.0 - dist / 2.0);
+        }
+
+        cand.score = confNorm * sizeWeight * historyWeight;
+        if (cand.gate_abnormal) {
+            cand.score *= 0.1;
+        }
+
+        candidates.push_back(cand);
+    }
+
+    bool anyGateNormal = false;
+    for (const auto &c : candidates) {
+        if (!c.gate_abnormal) {
+            anyGateNormal = true;
+            break;
+        }
+    }
+    if (gatingActive && !candidates.empty()) {
+        if (anyGateNormal) {
+            gateFailStreak = 0;
+        } else {
+            gateFailStreak = min(gateFailStreak + 1, 10);
+        }
+    }
+
+    // 4. jump reject：连续 2 帧门控异常后才启用
+    if (gateFailStreak >= 2 && data->ballDetected && tree->getEntry<bool>("ball_location_known")) {
+        vector<ScoredBall> filtered;
+        filtered.reserve(candidates.size());
+        for (const auto &c : candidates) {
+            const auto &ballObj = ballObjs[c.index];
+            const double jumpDist = norm(
+                ballObj.posToField.x - data->ball.posToField.x,
+                ballObj.posToField.y - data->ball.posToField.y);
+            if (jumpDist <= config->immJumpDistMPerFrame) {
+                filtered.push_back(c);
+            }
+        }
+        candidates = std::move(filtered);
+    }
+
+    int indexRealBall = -1;
+    double bestScore = 0.0;
+    for (const auto &c : candidates) {
+        if (c.score > bestScore) {
+            bestScore = c.score;
+            indexRealBall = c.index;
         }
     }
 
     auto now = this->get_clock()->now();
 
-    if (indexRealBall >= 0)
-    { // 检测到球了
+    if (indexRealBall >= 0) {
         data->ballDetected = true;
-
         data->ball = ballObjs[indexRealBall];
-        data->ball.confidence = bestConfidence;
+        data->ball.confidence = ballObjs[indexRealBall].confidence;
 
         tree->setEntry<bool>("ball_location_known", true);
         updateBallOut();
 
         lastSeenRealBallTime = now;
-        data->lose_ball = false;        
-    }
-    else
-    { // 没有检测到球
-        log->setTimeNow();
-        // log->log("image/detection_boxes_realball", rerun::Clear::FLAT);
+        data->lose_ball = false;
+    } else {
         data->ballDetected = false;
         data->ball.boundingBox.xmin = 0;
         data->ball.boundingBox.xmax = 0;
         data->ball.boundingBox.ymin = 0;
         data->ball.boundingBox.ymax = 0;
 
-        if (lastSeenRealBallTime.seconds() > 0.0)
-        {
-            double msecs = (now - lastSeenRealBallTime).nanoseconds() / 1e6;
+        if (lastSeenRealBallTime.seconds() > 0.0) {
+            const double msecs = (now - lastSeenRealBallTime).nanoseconds() / 1e6;
             data->lose_ball = (msecs > 2000.0);
-        }
-        else
-        {
+        } else {
             data->lose_ball = false;
         }
-
-        // data->ball.confidence = 0; // DO NOT set confidence to 0, confidence decay depends on this.
     }
 
-    // 计算机器人到球的向量, 在 field 坐标系中的方向
-    data->robotBallAngleToField = atan2(data->ball.posToField.y - data->robotPoseToField.y, data->ball.posToField.x - data->robotPoseToField.x);
+    data->robotBallAngleToField = atan2(
+        data->ball.posToField.y - data->robotPoseToField.y,
+        data->ball.posToField.x - data->robotPoseToField.x);
 }
 
 void Brain::detectProcessMarkings(const vector<GameObject> &markingObjs)
@@ -2629,6 +3072,7 @@ void Brain::logDebugInfo() {
     log->setTimeNow();
     log->log("debug/my_cost_scalar", rerun::Scalar(data->tmMyCost));
     log->log("debug/my_lead_scalar", rerun::Scalar(data->tmImLead));
+    logBallPrediction();
 }
 
 void Brain::updateRelativePos(GameObject &obj) {
@@ -2641,7 +3085,7 @@ void Brain::updateRelativePos(GameObject &obj) {
     obj.posToRobot.y = pr.y;
     obj.range = norm(obj.posToRobot.x, obj.posToRobot.y);
     obj.yawToRobot = atan2(obj.posToRobot.y, obj.posToRobot.x);
-    obj.pitchToRobot = asin(config->robotHeight / obj.range);
+    obj.pitchToRobot = atan2(config->robotHeight, max(obj.range, 1e-6));
 }
 
 void Brain::updateFieldPos(GameObject &obj) {
@@ -2654,7 +3098,7 @@ void Brain::updateFieldPos(GameObject &obj) {
     obj.posToField.y = pf.y;
     obj.range = norm(obj.posToRobot.x, obj.posToRobot.y);
     obj.yawToRobot = atan2(obj.posToRobot.y, obj.posToRobot.x);
-    obj.pitchToRobot = asin(config->robotHeight / obj.range);
+    obj.pitchToRobot = atan2(config->robotHeight, max(obj.range, 1e-6));
 }
 
 void Brain::depthImageCallback(const sensor_msgs::msg::Image &msg)
@@ -3120,7 +3564,14 @@ string Brain::getComLogString() {
         else
             ss << RED_CODE << "NO" << CYAN_CODE;
         ss << "\tCMD: " << format("[%d]%d", status.cmdId, status.cmd);
-        ss << "\tLag: " << format("%.0f", msecsSince(status.timeLastCom)) << "ms" << "\n";
+        ss << "\tLag: " << format("%.0f", msecsSince(status.timeLastCom)) << "ms";
+        if (status.lastPacketAgeMs > 0) {
+            ss << "\tPktAge: " << status.lastPacketAgeMs << "ms";
+        }
+        if (status.lastPacketSize > 0) {
+            ss << "\tPktSz: " << status.lastPacketSize;
+        }
+        ss << "\n";
     }
     ss << "\n";
     

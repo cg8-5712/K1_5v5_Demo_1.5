@@ -1,6 +1,13 @@
 #pragma once
 
+#include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 using namespace std;
 

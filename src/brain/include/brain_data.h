@@ -15,6 +15,13 @@
 
 using namespace std;
 
+/** 二维场地点 / 机器人点，带有效标志 */
+struct PlanarPoint2D {
+    double x = 0.0;
+    double y = 0.0;
+    bool valid = false;
+};
+
 /**
  * BrainData 类，记录 Brain 在决策中需要用到的所在数据，区分于 BrainConfig，这里是运行时数据（动态）
  * 针对数据处理的一些工具函数，也可以放到这里来
@@ -47,6 +54,10 @@ public:
     // 头部位置 通过 lowStateCallback 更新数据
     double headPitch; // 当前头部的 pitch, 单位 rad, 0 点为水平向前, 向下为正.
     double headYaw;   // 当前头部的 yaw, 单位 rad, 0 点为向前, 向左为正.
+    float imuAcc[3] = {0.f, 0.f, 0.f}; // 来自 LowState.imu_state.acc
+
+    int8_t trainingKickResult = -1;
+    uint8_t trainingKickAbortReason = 0;
     Eigen::Matrix4d camToRobot = Eigen::Matrix4d::Identity();  // 相机到机器人坐标系的变换矩阵，初始化为单位矩阵
 
     // vector<TimestampedData> headPosBuffer = {};
@@ -58,8 +69,25 @@ public:
     GameObject tmBall;            // 队友传来的球的信息
     double robotBallAngleToField; // 机器人到球的向量, 在球场坐标系中与 X 轴的夹角, (-PI,PI]
     bool lose_ball = false;       // 视觉丢球状态, 用于 visual kick 的退出判定
-    vector<array<double, 2>> predictedBallPos; // 预测的球的位置, 单位 m, 相对于球场坐标系. 第一维为 x, 第二维为 y
-    rclcpp::Time ballPosPredictTime; // 上一次进行预测的球的位置的时间戳
+    vector<GameObject> pendingBallDetections;
+    bool pendingBallDetectionsReady = false;
+
+    PlanarPoint2D filteredBallField;
+    PlanarPoint2D pred100Field;
+    PlanarPoint2D pred300Field;
+    PlanarPoint2D pred100Robot;
+    float ballConfidence = 0.f;        // [0, 1]，预测器置信度
+    float ballModeProb[2] = {0.5f, 0.5f}; // [stationary, rolling]
+    bool ballPredictionValid = false;
+    bool pred300Valid = false;
+    bool usingFieldFrame = false;
+
+    /** @deprecated 由 pred100Field 同步，兼容旧逻辑 */
+    vector<array<double, 2>> predictedBallPos;
+    rclcpp::Time ballPosPredictTime;
+
+    void resetBallPrediction();
+    void syncLegacyPredictedBallPos();
     bool ballWillBreach = false; // 是否会从机器人身边穿过
     Point2D ballBreachPoint; // 如果会穿过, 穿过的时刻所在的位置
     rclcpp::Time ballBreachTime; // 预计穿过的时间点

@@ -113,6 +113,67 @@ public:
     bool soundEnable = false;
     string soundPack = "espeak"; // espeak 或 语音名名称, 假设语音包名称为 <name>, 相应的语音文件需放到: sound_play/sounds/<name>/ 目录下
 
+    // ball_predictor / chase / kick / cooperation / vision
+    double immFrictionDecayHz = 0.30;
+    double immOcclusionNoiseGrowth = 1.05;
+    int immMaxOccludedFrames = 50;
+    double immBallConfidenceDecayRate = 0.92;
+    double immGateChi2Threshold = 5.99;
+    double immJumpDistMPerFrame = 0.40;
+    double immLocalizationTrustCovMax = 0.25;
+
+    int chasePredictMsec = 100;
+    double chaseApproachSpeedMps = 0.40;
+    double chaseSlowZoneRadiusM = 0.50;
+
+    int kickWindowMsec = 300;
+    int kickFutureWindowMsec = 150;
+    double kickAbortBallMoveDistM = 0.15;
+    double kickAbortConfidence = 0.35;
+    double kickAbortYawDeg = 20.0;
+
+    double psMinDistToGoalM = 1.5;
+    double psMaxDistToGoalM = 4.0;
+    double psMinGoalAngleDeg = 15.0;
+    double psRobotStabilityMin = 0.8;
+
+    double coopHandoverMarginM = 0.30;
+    int coopLeadMinMsec = 800;
+    int coopStaleThresholdMs = 500;
+    double coopVelWeight = 0.5;
+    double coopBallDistEpsilon = 0.05;
+
+    double visionBallPrefilterConfMin = 0.10;
+    double visionProfilerAlertFpsMin = 40.0;
+    double visionProfilerAlertDropRateMax = 2.0;
+    double visionProfilerAlertE2eP95MsMax = 20.0;
+    double visionProfilerAlertJitterMsMax = 5.0;
+
+    bool debugLogBallPos = false;
+
+    bool headControllerEnabled = true;
+    double headControllerHz = 50.0;
+    int headDirectedMaxFrames = 25;
+    double headDirectedVelMin = 0.1;
+    double headDirectedScanRad = 0.5235987755982988; // 30 deg
+    double headDirectedScanHz = 0.5;
+    double headSweepHz = 0.5;
+    double headTrackSmoother = 3.5;
+    double headSweepPitchLow = 1.0;
+    double headSweepPitchHigh = 0.2;
+
+    double ksAbortConfidence = 0.25;
+    double ksAdjustYawDeg = 15.0;
+    double ksRlvisionRangeMaxM = 0.30;
+    double ksRlvisionYawDeg = 8.0;
+    double ksRlvisionConfMin = 0.50;
+    double ksShootDistToGoalMaxM = 2.5;
+    double ksShootGoalAngleDeg = 20.0;
+
+    bool trainingLoggerEnabled = false;
+    string trainingLoggerLogDir = "./training_logs";
+    double trainingLoggerHz = 20.0;
+
     // 计算地面标线与标志点的理论值
     void calcMapLines();
     void calcMapMarkings();

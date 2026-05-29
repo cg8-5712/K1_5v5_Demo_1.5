@@ -2,6 +2,7 @@ add_library(booster_vision_base SHARED intrin.cpp
                                        pose.cpp
                                        pointcloud_process.cpp
                                        data_syncer.cpp
+                                       vision_profiler.cpp
                                        )
 target_include_directories(booster_vision_base PUBLIC ${geometry_msgs_INCLUDE_DIRS}
                                                       ${tf2_INCLUDE_DIRS})
