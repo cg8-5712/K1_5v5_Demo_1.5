@@ -190,13 +190,15 @@ BallPrediction BallImmPredictor::getPrediction() const
     const double mu_mix =
         mode_prob_[kStationary] * stationary_.friction_mu + mode_prob_[kRolling] * rolling_.friction_mu;
 
-    if (mode_prob_[kStationary] > 0.65) {
-        predictPosition(x_mix, stationary_.friction_mu, 0.1, out.pred100);
-        predictPosition(x_mix, stationary_.friction_mu, 0.3, out.pred300);
-    } else {
-        predictPosition(x_mix, mu_mix, 0.1, out.pred100);
-        predictPosition(x_mix, mu_mix, 0.3, out.pred300);
-    }
+    double p100[2] = {0.0, 0.0};
+    double p300[2] = {0.0, 0.0};
+    const double mu_use = (mode_prob_[kStationary] > 0.65) ? stationary_.friction_mu : mu_mix;
+    predictPosition(x_mix, mu_use, 0.1, p100);
+    predictPosition(x_mix, mu_use, 0.3, p300);
+    out.pred100[0] = static_cast<float>(p100[0]);
+    out.pred100[1] = static_cast<float>(p100[1]);
+    out.pred300[0] = static_cast<float>(p300[0]);
+    out.pred300[1] = static_cast<float>(p300[1]);
 
     return out;
 }

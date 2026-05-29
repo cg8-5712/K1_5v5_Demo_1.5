@@ -927,7 +927,7 @@ void Brain::logBallPrediction()
     log->log("debug/using_field_frame_scalar", rerun::Scalar(data->usingFieldFrame ? 1.0 : 0.0));
     if (headController_ && config->headControllerEnabled) {
         log->log("debug/head_controller_mode_scalar",
-            rerun::Scalar(static_cast<double>(headController_->lastModeIndex()));
+            rerun::Scalar(static_cast<double>(headController_->lastModeIndex())));
     }
 }
 

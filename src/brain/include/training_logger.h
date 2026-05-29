@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 
+#include <rclcpp/time.hpp>
+
 #include "mcap_writer.h"
 #include "training_frame.h"
 
